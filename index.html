@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Analyseur de fichiers tabulaires</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.2.1/styles/ag-grid.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.2.1/styles/ag-theme-balham.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Analyseur intelligent de fichiers CSV &amp; XLSX</h1>
+    <p>Importez, explorez et recherchez dans de grands jeux de données directement depuis votre navigateur.</p>
+  </header>
+
+  <main>
+    <section class="uploader" id="uploader">
+      <div class="uploader__actions">
+        <label for="fileInput" class="btn">Sélectionner un fichier</label>
+        <input id="fileInput" type="file" accept=".csv,.xlsx" />
+        <p>ou glissez-déposez votre fichier ici</p>
+      </div>
+      <div class="uploader__meta">
+        <div class="progress" aria-live="polite">
+          <div class="progress__bar" id="progressBar"></div>
+        </div>
+        <p id="fileInfo" class="uploader__info">Aucun fichier importé pour le moment.</p>
+      </div>
+    </section>
+
+    <section class="controls" aria-label="Paramètres de recherche">
+      <div class="control-group">
+        <label for="searchInput">Mots-clés (séparés par virgules, espaces ou opérateurs AND, OR, NOT)</label>
+        <input type="text" id="searchInput" placeholder="ex. : marketing AND (2023 OR 2022)" autocomplete="off" />
+      </div>
+      <div class="control-row">
+        <label class="checkbox"><input type="checkbox" id="caseSensitive" /> Sensible à la casse</label>
+        <label class="checkbox"><input type="checkbox" id="exactMatch" /> Correspondance exacte</label>
+        <button id="searchButton" class="btn btn--primary" disabled>Rechercher</button>
+        <button id="resetButton" class="btn" disabled>Réinitialiser</button>
+      </div>
+    </section>
+
+    <section class="results" aria-live="polite">
+      <div class="results__header">
+        <h2>Résultats</h2>
+        <div class="results__exports">
+          <button id="copyButton" class="btn" disabled>Copier</button>
+          <button id="exportCsvButton" class="btn" disabled>Exporter en CSV</button>
+          <button id="exportXlsxButton" class="btn" disabled>Exporter en XLSX</button>
+        </div>
+      </div>
+      <div id="grid" class="ag-theme-balham"></div>
+      <p id="resultStats" class="results__stats">Importez un fichier pour commencer l'analyse.</p>
+    </section>
+  </main>
+
+  <footer>
+    <small>Traitement local dans votre navigateur. Aucun fichier n'est envoyé sur un serveur.</small>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@31.2.1/dist/ag-grid-community.noStyle.min.js"></script>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
