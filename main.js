@@ -19,9 +19,40 @@ let currentFileName = '';
 let workerReady = false;
 let currentSearchStart = null;
 
-const worker = new Worker(new URL('./searchWorker.js', import.meta.url), {
-  type: 'module',
-});
+let worker = null;
+
+function instantiateWorker() {
+  if (worker) {
+    worker.terminate();
+  }
+  let instance;
+  try {
+    instance = new Worker(new URL('./searchWorker.js', import.meta.url), {
+      type: 'module',
+    });
+  } catch (moduleError) {
+    console.warn('Module worker unavailable, falling back to classic worker.', moduleError);
+    try {
+      instance = new Worker('searchWorker.js');
+    } catch (classicError) {
+      console.error('Impossible de créer un Web Worker.', classicError);
+      instance = null;
+    }
+  }
+  if (instance) {
+    instance.onmessage = handleWorkerMessage;
+    instance.onerror = handleWorkerError;
+    workerReady = false;
+  }
+  return instance;
+}
+
+function ensureWorker() {
+  if (!worker) {
+    worker = instantiateWorker();
+  }
+  return worker;
+}
 
 const gridOptions = {
   columnDefs: [],
@@ -67,7 +98,7 @@ function setGridOption(key, value) {
   }
 }
 
-worker.onmessage = (event) => {
+function handleWorkerMessage(event) {
   const { type, payload } = event.data;
   switch (type) {
     case 'ready':
@@ -90,13 +121,13 @@ worker.onmessage = (event) => {
     default:
       break;
   }
-};
+}
 
-worker.onerror = (error) => {
+function handleWorkerError(error) {
   console.error('Search worker error', error);
   toggleSearch(true);
   showStatus("Une erreur est survenue dans le moteur de recherche.", true);
-};
+}
 
 function resetState() {
   dataset = [];
@@ -105,6 +136,7 @@ function resetState() {
   currentFileName = '';
   workerReady = false;
   currentSearchStart = null;
+  worker = instantiateWorker();
   setGridOption('columnDefs', []);
   setGridOption('rowData', []);
   progressBar.style.width = '0%';
@@ -331,10 +363,15 @@ function finalizeImport(headers) {
   updateStats(filteredData.length, dataset.length);
   setExportsAvailability(filteredData.length > 0);
   fileInfo.textContent = `${currentFileName} importé avec succès.`;
-  workerReady = false;
   updateProgress(100);
+  workerReady = false;
   toggleSearch(false);
-  worker.postMessage({ type: 'init', payload: { rows: dataset, columns: headers } });
+  const activeWorker = ensureWorker();
+  if (!activeWorker) {
+    showStatus('Le moteur de recherche n\'a pas pu être initialisé.', true);
+    return;
+  }
+  activeWorker.postMessage({ type: 'init', payload: { rows: dataset, columns: headers } });
 }
 
 function performSearch() {
@@ -350,13 +387,19 @@ function performSearch() {
     setExportsAvailability(filteredData.length > 0);
     return;
   }
+  const activeWorker = ensureWorker();
+  if (!activeWorker) {
+    toggleSearch(true);
+    showStatus('Le moteur de recherche est indisponible.', true);
+    return;
+  }
   if (!workerReady) {
     showStatus('Initialisation du moteur de recherche... Veuillez patienter.', true);
     return;
   }
   toggleSearch(false);
   currentSearchStart = performance.now();
-  worker.postMessage({
+  activeWorker.postMessage({
     type: 'search',
     payload: {
       query,
