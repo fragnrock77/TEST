@@ -19,7 +19,44 @@ let currentFileName = '';
 let workerReady = false;
 let currentSearchStart = null;
 
+ codex/create-web-app-for-importing-xlsx-and-csv-mgkizr
+let worker = null;
+
+function instantiateWorker() {
+  if (worker) {
+    worker.terminate();
+  }
+  let instance;
+  try {
+    instance = new Worker(new URL('./searchWorker.js', import.meta.url), {
+      type: 'module',
+    });
+  } catch (moduleError) {
+    console.warn('Module worker unavailable, falling back to classic worker.', moduleError);
+    try {
+      instance = new Worker('searchWorker.js');
+    } catch (classicError) {
+      console.error('Impossible de créer un Web Worker.', classicError);
+      instance = null;
+    }
+  }
+  if (instance) {
+    instance.onmessage = handleWorkerMessage;
+    instance.onerror = handleWorkerError;
+    workerReady = false;
+  }
+  return instance;
+}
+
+function ensureWorker() {
+  if (!worker) {
+    worker = instantiateWorker();
+  }
+  return worker;
+}
+
 const worker = new Worker('searchWorker.js', { type: 'module' });
+ main
 
 const gridOptions = {
   columnDefs: [],
@@ -37,9 +74,41 @@ const gridOptions = {
 };
 
 const gridElement = document.getElementById('grid');
+ codex/create-web-app-for-importing-xlsx-and-csv-mgkizr
+let gridApi;
+
+if (typeof agGrid.createGrid === 'function') {
+  gridApi = agGrid.createGrid(gridElement, gridOptions);
+} else {
+  new agGrid.Grid(gridElement, gridOptions);
+  gridApi = gridOptions.api;
+}
+
+function setGridOption(key, value) {
+  if (!gridApi) return;
+  if (typeof gridApi.setGridOption === 'function') {
+    gridApi.setGridOption(key, value);
+    return;
+  }
+  if (typeof gridApi.updateGridOptions === 'function') {
+    gridApi.updateGridOptions({ [key]: value });
+    return;
+  }
+  if (key === 'columnDefs' && typeof gridApi.setColumnDefs === 'function') {
+    gridApi.setColumnDefs(value);
+    return;
+  }
+  if (key === 'rowData' && typeof gridApi.setRowData === 'function') {
+    gridApi.setRowData(value);
+  }
+}
+
+function handleWorkerMessage(event) {
+
 new agGrid.Grid(gridElement, gridOptions);
 
 worker.onmessage = (event) => {
+ main
   const { type, payload } = event.data;
   switch (type) {
     case 'ready':
@@ -49,7 +118,11 @@ worker.onmessage = (event) => {
     case 'searchResult':
       currentSearchStart = null;
       filteredData = payload.rows;
+ codex/create-web-app-for-importing-xlsx-and-csv-mgkizr
+      setGridOption('rowData', filteredData);
+
       gridOptions.api.setRowData(filteredData);
+ main
       updateStats(payload.rows.length, dataset.length, payload.duration);
       setExportsAvailability(filteredData.length > 0);
       toggleSearch(true);
@@ -62,6 +135,15 @@ worker.onmessage = (event) => {
     default:
       break;
   }
+ codex/create-web-app-for-importing-xlsx-and-csv-mgkizr
+}
+
+function handleWorkerError(error) {
+  console.error('Search worker error', error);
+  toggleSearch(true);
+  showStatus("Une erreur est survenue dans le moteur de recherche.", true);
+}
+
 };
 
 worker.onerror = (error) => {
@@ -69,6 +151,7 @@ worker.onerror = (error) => {
   toggleSearch(true);
   showStatus("Une erreur est survenue dans le moteur de recherche.", true);
 };
+ main
 
 function resetState() {
   dataset = [];
@@ -77,8 +160,14 @@ function resetState() {
   currentFileName = '';
   workerReady = false;
   currentSearchStart = null;
+ codex/create-web-app-for-importing-xlsx-and-csv-mgkizr
+  worker = instantiateWorker();
+  setGridOption('columnDefs', []);
+  setGridOption('rowData', []);
+
   gridOptions.api.setColumnDefs([]);
   gridOptions.api.setRowData([]);
+ main
   progressBar.style.width = '0%';
   fileInfo.textContent = 'Aucun fichier importé pour le moment.';
   resultStats.textContent = 'Importez un fichier pour commencer l\'analyse.';
@@ -118,16 +207,58 @@ function showStatus(message, isError = false) {
 }
 
 function updateProgress(percent) {
+ codex/create-web-app-for-importing-xlsx-and-csv-mgkizr
+  if (Number.isNaN(percent) || percent === undefined) {
+    return;
+  }
+
+ main
   const clamped = Math.max(0, Math.min(100, percent));
   progressBar.style.width = `${clamped}%`;
 }
 
+ codex/create-web-app-for-importing-xlsx-and-csv-mgkizr
+function sanitizeHeaderValue(value) {
+  if (value === null || value === undefined) return '';
+  const asString = String(value).replace(/^[\ufeff]+/, '').trim();
+  return asString;
+}
+
+function normalizeHeaders(rawHeaders = []) {
+  const headers = [];
+  rawHeaders.forEach((raw, index) => {
+    const base = sanitizeHeaderValue(raw) || `Colonne ${index + 1}`;
+    let candidate = base;
+    let suffix = 2;
+    while (headers.includes(candidate)) {
+      candidate = `${base} (${suffix})`;
+      suffix += 1;
+    }
+    headers.push(candidate);
+  });
+  return headers;
+}
+
+function isMeaningfulRow(row = []) {
+  return Array.isArray(row) && row.some((cell) => {
+    if (cell === null || cell === undefined) return false;
+    if (typeof cell === 'string') return cell.trim().length > 0;
+    return String(cell).trim().length > 0;
+  });
+}
+
+
+ main
 function initGridColumns(columns) {
   columnDefs = columns.map((col) => ({
     headerName: col,
     field: col,
   }));
+ codex/create-web-app-for-importing-xlsx-and-csv-mgkizr
+  setGridOption('columnDefs', columnDefs);
+
   gridOptions.api.setColumnDefs(columnDefs);
+ main
 }
 
 function handleFile(file) {
@@ -149,12 +280,63 @@ function handleFile(file) {
 
 function parseCsv(file) {
   dataset = [];
+ codex/create-web-app-for-importing-xlsx-and-csv-mgkizr
+  let rawHeaders = null;
+  let headers = [];
+  let previewRendered = false;
+
   let headers = null;
+ main
   Papa.parse(file, {
     worker: true,
     skipEmptyLines: 'greedy',
     chunkSize: 1024 * 512,
     chunk: (results) => {
+ codex/create-web-app-for-importing-xlsx-and-csv-mgkizr
+      if (!rawHeaders) {
+        while (results.data.length) {
+          const potentialHeader = results.data.shift();
+          if (!isMeaningfulRow(potentialHeader)) {
+            continue;
+          }
+          rawHeaders = potentialHeader;
+          headers = normalizeHeaders(rawHeaders);
+          initGridColumns(headers);
+          break;
+        }
+        if (!rawHeaders) {
+          if (typeof results.meta.cursor === 'number') {
+            updateProgress((results.meta.cursor / file.size) * 100);
+          }
+          return;
+        }
+      }
+      if (!headers.length) {
+        return;
+      }
+      const rows = results.data
+        .filter((row) => isMeaningfulRow(row))
+        .map((row) =>
+          headers.reduce((acc, header, index) => {
+            acc[header] = row[index] ?? '';
+            return acc;
+          }, {})
+        );
+      if (!rows.length) {
+        if (typeof results.meta.cursor === 'number') {
+          updateProgress((results.meta.cursor / file.size) * 100);
+        }
+        return;
+      }
+      dataset.push(...rows);
+      if (!previewRendered) {
+        setGridOption('rowData', dataset);
+        previewRendered = true;
+      }
+      if (typeof results.meta.cursor === 'number') {
+        updateProgress((results.meta.cursor / file.size) * 100);
+      }
+
       if (!headers) {
         headers = results.data.shift();
         if (!headers) return;
@@ -168,6 +350,7 @@ function parseCsv(file) {
         }, {}));
       dataset.push(...rows);
       updateProgress((results.meta.cursor / file.size) * 100);
+ main
       updateStats(dataset.length, dataset.length);
     },
     complete: () => {
@@ -200,15 +383,32 @@ function parseXlsx(file) {
       const workbook = XLSX.read(event.target.result, { type: 'array', cellDates: true });
       const sheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[sheetName];
+ codex/create-web-app-for-importing-xlsx-and-csv-mgkizr
+      const json = XLSX.utils.sheet_to_json(worksheet, { defval: '', raw: false });
+
       const json = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+ main
       if (!json.length) {
         showStatus('La feuille XLSX sélectionnée est vide.', true);
         toggleSearch(true);
         return;
       }
+ codex/create-web-app-for-importing-xlsx-and-csv-mgkizr
+      const rawHeaders = Object.keys(json[0]);
+      const headers = normalizeHeaders(rawHeaders);
+      initGridColumns(headers);
+      dataset = json.map((row) =>
+        headers.reduce((acc, header, index) => {
+          const sourceKey = rawHeaders[index];
+          acc[header] = row[sourceKey] ?? '';
+          return acc;
+        }, {})
+      );
+
       const headers = Object.keys(json[0]);
       initGridColumns(headers);
       dataset = json;
+ main
       updateProgress(100);
       updateStats(dataset.length, dataset.length);
       finalizeImport(headers);
@@ -228,6 +428,21 @@ function finalizeImport(headers) {
     return;
   }
   filteredData = dataset;
+ codex/create-web-app-for-importing-xlsx-and-csv-mgkizr
+  setGridOption('rowData', filteredData);
+  updateStats(filteredData.length, dataset.length);
+  setExportsAvailability(filteredData.length > 0);
+  fileInfo.textContent = `${currentFileName} importé avec succès.`;
+  updateProgress(100);
+  workerReady = false;
+  toggleSearch(false);
+  const activeWorker = ensureWorker();
+  if (!activeWorker) {
+    showStatus('Le moteur de recherche n\'a pas pu être initialisé.', true);
+    return;
+  }
+  activeWorker.postMessage({ type: 'init', payload: { rows: dataset, columns: headers } });
+
   gridOptions.api.setRowData(filteredData);
   updateStats(filteredData.length, dataset.length);
   setExportsAvailability(filteredData.length > 0);
@@ -236,6 +451,7 @@ function finalizeImport(headers) {
   updateProgress(100);
   toggleSearch(false);
   worker.postMessage({ type: 'init', payload: { rows: dataset, columns: headers } });
+ main
 }
 
 function performSearch() {
@@ -246,18 +462,35 @@ function performSearch() {
   }
   if (!query) {
     filteredData = dataset;
+ codex/create-web-app-for-importing-xlsx-and-csv-mgkizr
+    setGridOption('rowData', filteredData);
+
     gridOptions.api.setRowData(filteredData);
+ main
     updateStats(filteredData.length, dataset.length);
     setExportsAvailability(filteredData.length > 0);
     return;
   }
+ codex/create-web-app-for-importing-xlsx-and-csv-mgkizr
+  const activeWorker = ensureWorker();
+  if (!activeWorker) {
+    toggleSearch(true);
+    showStatus('Le moteur de recherche est indisponible.', true);
+    return;
+  }
+
+ main
   if (!workerReady) {
     showStatus('Initialisation du moteur de recherche... Veuillez patienter.', true);
     return;
   }
   toggleSearch(false);
   currentSearchStart = performance.now();
+ codex/create-web-app-for-importing-xlsx-and-csv-mgkizr
+  activeWorker.postMessage({
+
   worker.postMessage({
+ main
     type: 'search',
     payload: {
       query,
@@ -274,7 +507,11 @@ function resetSearch() {
   caseSensitiveInput.checked = false;
   exactMatchInput.checked = false;
   filteredData = dataset;
+ codex/create-web-app-for-importing-xlsx-and-csv-mgkizr
+  setGridOption('rowData', filteredData);
+
   gridOptions.api.setRowData(filteredData);
+ main
   updateStats(filteredData.length, dataset.length);
   setExportsAvailability(filteredData.length > 0);
 }
